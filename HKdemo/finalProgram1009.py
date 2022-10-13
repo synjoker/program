@@ -134,9 +134,9 @@ def ConnectDevice(nConnectionNum, ReverseFlag):
 
     # ch:设置曝光时间
     # - 增益 Node Name: Gain Type: Float
-    nExposureTime = 50000
+    nExposureTime = 100000
     ret = cam.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
-    nGain = 5
+    nGain = 0
     ret = cam.MV_CC_SetFloatValue("Gain", nGain)
 
     # Y轴图像翻转   Node Name: ReverseX         Type: Boolean
@@ -150,16 +150,16 @@ def ConnectDevice(nConnectionNum, ReverseFlag):
     cam.MV_CC_SetEnumValueByString("GainAuto", "Off")
     cam.MV_CC_SetEnumValueByString("ExposureAuto", "Off")
 
-    # # 设置width和height 以及layoutx y来调节图像大小，进而实现图像的帧率
-    # # width 1832 height 1500 layoutx 700 layouty 400
-    # nWidth  = 1832
-    # nHeight = 1500
-    # offsetX = 700
-    # offsetY = 400
-    # cam.MV_CC_SetIntValue("Width", nWidth)
-    # cam.MV_CC_SetIntValue("Height", nHeight)
-    # cam.MV_CC_SetIntValue("OffsetX", offsetX)
-    # cam.MV_CC_SetIntValue("OffsetY", offsetY)
+    # 设置width和height 以及layoutx y来调节图像大小，进而实现图像的帧率
+    # width 1832 height 1500 layoutx 700 layouty 400
+    nWidth  = 1832
+    nHeight = 1500
+    offsetX = 700
+    offsetY = 400
+    cam.MV_CC_SetIntValue("Width", nWidth)
+    cam.MV_CC_SetIntValue("Height", nHeight)
+    cam.MV_CC_SetIntValue("OffsetX", offsetX)
+    cam.MV_CC_SetIntValue("OffsetY", offsetY)
 
     # ch:设置触发模式为off | en:Set trigger mode as off
     ret = cam.MV_CC_SetEnumValue("TriggerMode", MV_TRIGGER_MODE_OFF)
@@ -302,18 +302,20 @@ def pyrometricfunc(img1, img2):
     Uppart = C2*(1/Lambda2-1/Lambda1)*m2nm
     # ------------------------------------------这里后面处理
     Gnumber = np.log((G1)/(G2))
+    Snumber = np.log(0.3815*Gnumber + 0.7914)
+    Snumber = np.log(S_lambda2/S_lambda1)
     Gnumber[np.where(Gnumber > 0)] = -3.5
-    Downpart = Gnumber + math.log(math.pow(Lambda1/Lambda2, 6),math.e) + np.log((S_lambda2)/(S_lambda1+0.1)) # 这里为二维数据
+    Downpart = Gnumber + math.log(math.pow(Lambda1/Lambda2, 6),math.e) + Snumber # 这里为二维数据
     T = Uppart / Downpart
     
     # 做个预处理
     T = T.astype(np.float16)
     # T[np.where(T < 0)] = 0
-
+    temperature1 = np.max(T)
     T = T/np.max(T)*255
     T = T.astype(np.uint8)
     # ------------------------------------------这里后面处理
-    return T
+    return T, temperature1
 
 #  计算特征点提取&生成描述时间
 def siftCam(image1, image2):
@@ -356,7 +358,10 @@ def siftCam(image1, image2):
         # imgOut = cv2.warpPerspective(image2, H, (image1.shape[1],image1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         # end = time.time()
         # print("匹配运行时间:%.2f秒"%(end-start))
-    return H, status
+        return H, status
+    else:
+        print ("siftcam failed!")
+        sys.exit()
 
 # ch:将缓存区mono12图像数据转换成16位图像，单字节用uint16表示
 def Mono12toImg16(Mono12, IHeight, IWidth):
@@ -428,22 +433,43 @@ if __name__ == "__main__":
         
         # 从cam句柄获取12位原始数据和8位换算数据
         # 如果双光还要翻转图像
-        originalsrc1, src1 = GetImage(cam1) # originalsrc为8位，src为12位
+        originalsrc1, src1 = GetImage(cam1) # originalsrc为12位，src为8位
         originalsrc2, src2 = GetImage(cam2)
+        # 可以考虑假如数字滤波，较小噪声
 
-        cv2.imshow("test1", cv2.resize(src1,(600,400)))
-        cv2.imshow("test2", cv2.resize(src2,(600,400)))
+        
 
         # sift调试代码
         if FirstGetSiftPara | (keyValue == ord('f')):
-            homographyMat, status = siftCam(originalsrc1, originalsrc2)
+            homographyMat, status = siftCam(src1, src2)
             FirstGetSiftPara = False
             keyValue = 0
+        if (keyValue == ord('g')):
+            nGain = 20
+            ret = cam1.MV_CC_SetFloatValue("Gain", nGain)
+            ret = cam2.MV_CC_SetFloatValue("Gain", nGain)
+            print("set gain %d" % nGain)
+        if (keyValue == ord('c')):
+            nGain = 0
+            ret = cam1.MV_CC_SetFloatValue("Gain", nGain)
+            ret = cam2.MV_CC_SetFloatValue("Gain", nGain)
+            print("set gain %d" % nGain)
+        if (keyValue == ord('h')):
+            nExposureTime = 100000
+            ret = cam1.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
+            ret = cam2.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
+            print("set exposure %d" % nExposureTime)
+        if (keyValue == ord('v')):
+            nExposureTime = 50000
+            ret = cam1.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
+            ret = cam2.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
+            print("set exposure %d" % nExposureTime)
+
         # start = time.time()
         HomoImage2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         # end = time.time()
         # print("图像转换:%.2f秒"%(end-start))
-        imgOut = (HomoImage2*0.5 + src1 *0.5).astype(np.uint8)
+        imgOut = (HomoImage2*0.5 + originalsrc1 *0.5).astype(np.uint8)
         cv2.imshow("sifttest", cv2.resize(imgOut,(600,400)))
 
         
@@ -485,10 +511,29 @@ if __name__ == "__main__":
         # 相机1&2双光测温
         # # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]))
-        temperature = pyrometricfunc(src1, HomoImage2)
+        temperature, maxtemperature = pyrometricfunc(src1, HomoImage2)
         temperature = PseudoColor(temperature)
-        cv2.imshow("5", cv2.resize(temperature,(900,600)))
 
+
+
+        fra1.append(np.max(originalsrc1))
+        mean1 = sum(fra1)/len(fra1)
+        if(len(fra1)>50):
+            fra1.remove(fra1[0])
+        cv2.putText(src1, "maxgrayLevel="+str(np.max(originalsrc1)), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src1, "meangrayLevel="+str(int(mean1)), (0, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        
+        fra2.append(np.max(originalsrc2))
+        mean2 = sum(fra2)/len(fra2)
+        if(len(fra2)>50):
+            fra2.remove(fra2[0])
+        cv2.putText(src2, "maxgrayLevel="+str(np.max(originalsrc2)), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src2, "meangrayLevel="+str(int(mean2)), (0, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        
+        cv2.imshow("test1", cv2.resize(src1,(600,400)))
+        cv2.imshow("test2", cv2.resize(src2,(600,400)))
+        cv2.imshow("5", cv2.resize(temperature,(900,600)))
+        print("maxtemperature: ", maxtemperature)
         # cv2.waitKey(10)  # time.sleep 延时没有用
         keyValue = cv2.waitKey(10)
     cv2.destroyAllWindows()
