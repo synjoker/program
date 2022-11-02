@@ -438,36 +438,36 @@ if __name__ == "__main__":
             print(len(fra2) ,sum(fra2))
             keyValue = cv2.waitKey(1)
 
-        #     # 图像融合  
-        #     # 相机1单色光测温
-        #     src_T16_1, src_T_1, src_maxT1 = GetTemperaturePic(originalsrc1, 0) # 这个函数是针对8为定制的需要改善
-        #     src_T16_2, src_T_2, src_maxT2 = GetTemperaturePic(originalsrc2, 1) # 这个函数是针对8为定制的需要改善
+            # 图像融合  
+            # 相机1单色光测温
+            src_T16_1, src_T_1, src_maxT1 = GetTemperaturePic(originalsrc1, 0) # 这个函数是针对8为定制的需要改善
+            src_T16_2, src_T_2, src_maxT2 = GetTemperaturePic(originalsrc2, 1) # 这个函数是针对8为定制的需要改善
 
-        #     temperwhere = np.where(src_T16_1 == np.max(src_T16_1))
-        #     temperx = temperwhere[0][0]
-        #     tempery = temperwhere[1][0]
-        #     temperature = src_T16_1[(temperx-30):(temperx+30),(tempery-30):(tempery+30)]
-        #     plt.figure("Image")  # 图像窗口名称
-        #     plt.subplot(121)
-        #     sns.heatmap(temperature, linewidths = 0, vmax=src_maxT1, vmin=1000, cmap='jet')
-        #     plt.title('800nm')  # 图像题目
-        #     plt.axis('off')
-        #     plt.xticks(rotation=90)
-        #     # 必须有这个，要不然无法显示
+            temperwhere = np.where(src_T16_1 == np.max(src_T16_1))
+            temperx = temperwhere[0][0]
+            tempery = temperwhere[1][0]
+            temperature = src_T16_1[(temperx-30):(temperx+30),(tempery-30):(tempery+30)]
+            plt.figure("Image")  # 图像窗口名称
+            plt.subplot(121)
+            sns.heatmap(temperature, linewidths = 0, vmax=src_maxT1, vmin=1000, cmap='jet')
+            plt.title('800nm')  # 图像题目
+            plt.axis('off')
+            plt.xticks(rotation=90)
+            # 必须有这个，要不然无法显示
 
-        #     temperwhere = np.where(src_T16_2 == np.max(src_T16_2))
-        #     temperx = temperwhere[0][0]
-        #     tempery = temperwhere[1][0]
-        #     temperature = src_T16_2[(temperx-30):(temperx+30),(tempery-30):(tempery+30)]
-        #     plt.subplot(122)
-        #     sns.heatmap(temperature, linewidths = 0, vmax=src_maxT2, vmin=1000, cmap='jet')
-        #     plt.title('700nm')  # 图像题目
-        #     plt.axis('off')
-        #     plt.xticks(rotation=90)
-        #     plt.pause(0.1)
-        #     plt.clf()              # 清除之前画的图
-        #     # keyValue = cv2.waitKey(1)
-        # plt.show()
+            temperwhere = np.where(src_T16_2 == np.max(src_T16_2))
+            temperx = temperwhere[0][0]
+            tempery = temperwhere[1][0]
+            temperature = src_T16_2[(temperx-30):(temperx+30),(tempery-30):(tempery+30)]
+            plt.subplot(122)
+            sns.heatmap(temperature, linewidths = 0, vmax=src_maxT2, vmin=1000, cmap='jet')
+            plt.title('700nm')  # 图像题目
+            plt.axis('off')
+            plt.xticks(rotation=90)
+            plt.pause(0.1)
+            plt.clf()              # 清除之前画的图
+            # keyValue = cv2.waitKey(1)
+        plt.show()
         cv2.destroyAllWindows()
         CloseDevice(cam1)
         CloseDevice(cam2)
