@@ -4,6 +4,7 @@ import sys
 import threading
 import msvcrt
 import cv2
+from cv2 import INTER_NEAREST
 import numpy as np
 import time
 import math
@@ -28,9 +29,9 @@ bench = 3500
 benchtemperature = 2045.125
 global Lamda1, Lambda2 # 双光使用的波长
 Lambda1 = 800 # (nm)
-Lambda2 = 850 # (nm)
+Lambda2 = 700 # (nm)
 global threshold # 计算温度时阈值灰度，小于此值进行处理
-threshold = 50
+threshold = 0
 #------------------------------------------------------
 
 
@@ -38,7 +39,10 @@ threshold = 50
 def DetectDevice():
     #input:  NULL
     #output: deviceList  
-
+    # global Lambda1
+    # global Lambda2
+    # Lambda1 = 800 # (nm)
+    # Lambda2 = 700 # (nm)
     deviceList = MV_CC_DEVICE_INFO_LIST()
     tlayerType = MV_GIGE_DEVICE | MV_USB_DEVICE
 
@@ -68,6 +72,15 @@ def DetectDevice():
             nip3 = ((mvcc_dev_info.SpecialInfo.stGigEInfo.nCurrentIp & 0x0000ff00) >> 8)
             nip4 = (mvcc_dev_info.SpecialInfo.stGigEInfo.nCurrentIp & 0x000000ff)
             print("current ip: %d.%d.%d.%d\n" % (nip1, nip2, nip3, nip4))
+            
+            # # 判断仪器ip并决定,以防连接后图像出现混肴
+            # if nip4==78 & i==0:
+            #     Lambda1 = 700
+            #     Lambda2 = 800
+            #     print("set Lamda1 700 and Lamda2 800")
+            #     continue
+            
+
         elif mvcc_dev_info.nTLayerType == MV_USB_DEVICE:
             print("\nu3v device: [%d]" % i)
             strModeName = ""
@@ -253,7 +266,7 @@ def ThresholdProcess(pic):
     # output:   处理过的 8位or16位numpy array数据
     # 值过小对于图像影响很大，需要算法上处理
     pic = pic.astype(np.float16)
-    pic[np.where(pic < threshold)] = np.inf
+    pic[np.where(pic <= threshold)] = np.inf
     return pic
 
 # 高斯滤波
@@ -279,7 +292,7 @@ def PseudoColor(temperaturepic):
     return cv2.applyColorMap(cv2.convertScaleAbs(temperaturepic, alpha=1), cv2.COLORMAP_JET)
 
 # 双光融合  ！！！！！！！！
-def pyrometricfunc(img1, img2):
+def pyrometricfunc(img1, img2, Lambda1, Lambda2):
     # img为8位图像
     # parameters setting
     T = 300 # temperature(K)
@@ -293,26 +306,39 @@ def pyrometricfunc(img1, img2):
     G2 = ThresholdProcess(G2)
     # S_lambda1 = 0.1911*G1 + 2.9188 # spectral sensitivity (Tungsten lamp factor)
     # S_lambda2 = 0.1911*G2 + 2.9188
-    S_lambda1 = 1 # spectral sensitivity (Tungsten lamp factor)
-    S_lambda2 = 1
-    Epsilon_lambda1 = 1 # spectral emissivity 
-    Epsilon_lambda2 = 1
+    # S_lambda1 = 1 # spectral sensitivity (Tungsten lamp factor)
+    # S_lambda2 = 1
+    # Epsilon_lambda1 = 1 # spectral emissivity 
+    # Epsilon_lambda2 = 1
 
     # 注意C2和lambda间的单位换算
     Uppart = C2*(1/Lambda2-1/Lambda1)*m2nm
     # ------------------------------------------这里后面处理
-    Gnumber = np.log((G1)/(G2))
-    Snumber = np.log(0.3815*Gnumber + 0.7914)
-    Snumber = np.log(S_lambda2/S_lambda1)
-    Gnumber[np.where(Gnumber > 0)] = -3.5
-    Downpart = Gnumber + math.log(math.pow(Lambda1/Lambda2, 6),math.e) + Snumber # 这里为二维数据
+    # 错误数据：（1）G2不能有极小值或0；（2）LnSnumber不能和LnGnumber符号相反；
+    Gnumber = (G1)/(G2)
+    if Lambda1/Lambda2 >1:
+        Gnumber[np.where(Gnumber <=1)] = 10000 # ???
+        Gnumber[np.where(Gnumber ==0)] = 10000 # ???
+    else:
+        Gnumber[np.where(Gnumber >=1)] = 0.0001 # ???
+        Gnumber[np.where(Gnumber ==0)] = 0.0001 # ???
+    # Snumber = 2.902187861*Gnumber -3.715612879
+    # Snumber[np.where(Snumber >=1)] = 0.1
+    # Gnumber[np.where(Gnumber ==0)] = 0.1
+    # LnSnumber = -1.699454545*np.log(Gnumber)+4.518236113
+    LnSnumber =-0.399626717*np.log(Gnumber)+0.795408756
+
+
+
+    Downpart = np.log(Gnumber) + math.log(math.pow(Lambda1/Lambda2, 5),math.e) + LnSnumber # 这里为二维数据
     T = Uppart / Downpart
     
     # 做个预处理
     T = T.astype(np.float16)
     # T[np.where(T < 0)] = 0
     temperature1 = np.max(T)
-    T = T/np.max(T)*255
+    benchtemperature = 2000
+    T = T/benchtemperature*255
     T = T.astype(np.uint8)
     # ------------------------------------------这里后面处理
     return T, temperature1
@@ -406,7 +432,8 @@ def GetImage(cam):
         print ("get one frame fail, ret[0x%x]" % ret)
 
 if __name__ == "__main__":
-    deviceList = DetectDevice()
+
+    deviceList, Lambda1, Lambda2 = DetectDevice()
     print("OUT find %d device(s)" % deviceList.nDeviceNum)
     cam1 = ConnectDevice(0, ReverseX_NO)
     cam2 = ConnectDevice(1, ReverseX_YES) 
@@ -439,11 +466,11 @@ if __name__ == "__main__":
 
         
 
-        # sift调试代码
-        if FirstGetSiftPara | (keyValue == ord('f')):
-            homographyMat, status = siftCam(src1, src2)
-            FirstGetSiftPara = False
-            keyValue = 0
+        # # sift调试代码
+        # if FirstGetSiftPara | (keyValue == ord('f')):
+        #     homographyMat, status = siftCam(src1, src2)
+        #     FirstGetSiftPara = False
+        #     keyValue = 0
         if (keyValue == ord('g')):
             nGain = 20
             ret = cam1.MV_CC_SetFloatValue("Gain", nGain)
@@ -464,15 +491,54 @@ if __name__ == "__main__":
             ret = cam1.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
             ret = cam2.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
             print("set exposure %d" % nExposureTime)
-
+        if FirstGetSiftPara | (keyValue == ord('f')):
+            srcwhere1 = np.where(src1 == np.max(src1))
+            srcwhere2 = np.where(src2 == np.max(src2))
+            src1x = srcwhere1[0][0]
+            src1y = srcwhere1[1][0]
+            src2x = srcwhere2[0][0]
+            src2y = srcwhere2[1][0]
+            # HomoImage2 = HomoImage2[][]
+            delteX = src1x - src2x
+            delteY = src1y - src2y
+            # 采用numpy roll实现偏移
+            HomoImage2 = np.roll(src2, (delteX,delteY),(0,1))
+            FirstGetSiftPara = False
+            keyValue = 0
+        
         # start = time.time()
-        HomoImage2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+        # HomoImage2 = cv2.warpPerspective(src2, homographyMat, (src1.shape[1],src1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         # end = time.time()
         # print("图像转换:%.2f秒"%(end-start))
-        imgOut = (HomoImage2*0.5 + originalsrc1 *0.5).astype(np.uint8)
+        imgOut = (HomoImage2*0.5 + src1 *0.5).astype(np.uint8)
         cv2.imshow("sifttest", cv2.resize(imgOut,(600,400)))
 
-        
+        srcwhere1 = np.where(src1 == np.max(src1))
+        srcwhere2 = np.where(HomoImage2 == np.max(HomoImage2))
+
+
+        # 相机1&2双光测温
+        # # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+        # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]))
+        temperature, maxtemperature = pyrometricfunc(src1, HomoImage2, Lambda1, Lambda2)
+
+        temperwhere = np.where(temperature == np.max(temperature))
+        temperx = temperwhere[0][0]
+        tempery = temperwhere[1][0]
+
+        temperature = PseudoColor(temperature)
+        cv2.putText(temperature, "maxpoint="+str(temperwhere), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(temperature, "maxtemperature: "+str(int(maxtemperature)), (0, 120), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.imshow("5", cv2.resize(temperature,(900,600)))
+        # print(np.linspace(temperx-10,temperx+10,21).astype(np.int16))
+        # print(np.linspace(tempery-10,tempery+10,21).astype(np.int16))
+        if temperx == 0: # 故障排除
+            if tempery == 0:
+                temperx = 50
+                tempery = 50
+        print("temperlocation: ", (temperx, tempery))
+        print(np.shape(temperature[(temperx-10):(temperx+10),(tempery-10):(tempery+10),:]))
+        cv2.imshow("6", cv2.resize(temperature[(temperx-10):(temperx+10),(tempery-10):(tempery+10),:],dsize=None,fx=10, fy=10, interpolation=INTER_NEAREST))
         
         # cv2.waitKey()
         # cv2.destroyAllWindows()
@@ -508,32 +574,32 @@ if __name__ == "__main__":
         # cv2.putText(src_TC2, "maxgrayLevel="+str(np.max(src_T2)), (0, 30), cv2.FONT_HERSHEY_SIMPLEX, 2, (128,128,128), 2)
         # cv2.imshow("4", cv2.resize(src_TC2,(900,600)))
         
-        # 相机1&2双光测温
-        # # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
-        # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]))
-        temperature, maxtemperature = pyrometricfunc(src1, HomoImage2)
-        temperature = PseudoColor(temperature)
-
-
-
-        fra1.append(np.max(originalsrc1))
+        fra1.append(np.max(src1))
         mean1 = sum(fra1)/len(fra1)
         if(len(fra1)>50):
             fra1.remove(fra1[0])
-        cv2.putText(src1, "maxgrayLevel="+str(np.max(originalsrc1)), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
-        cv2.putText(src1, "meangrayLevel="+str(int(mean1)), (0, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
         
-        fra2.append(np.max(originalsrc2))
+        cv2.putText(src1, "maxgrayLevel="+str(int(np.max(src1))), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src1, "maxpoint="+str(srcwhere1), (0, 120), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src1, "meangrayLevel="+str(int(mean1)), (0, 180), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src1, "lamda="+str(int(Lambda1)), (0, 240), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.imshow("7", cv2.resize(src1[(src1x-10):(src1x+10),(src1y-10):(src1y+10)],dsize=None,fx=10, fy=10, interpolation=INTER_NEAREST))
+        
+        fra2.append(np.max(src2))
         mean2 = sum(fra2)/len(fra2)
         if(len(fra2)>50):
             fra2.remove(fra2[0])
-        cv2.putText(src2, "maxgrayLevel="+str(np.max(originalsrc2)), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
-        cv2.putText(src2, "meangrayLevel="+str(int(mean2)), (0, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
         
+        cv2.putText(src2, "maxgrayLevel="+str(int(np.max(src2))), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src2, "maxpoint="+str(srcwhere2), (0, 120), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src2, "meangrayLevel="+str(int(mean2)), (0, 180), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.putText(src2, "lamda="+str(int(Lambda2)), (0, 240), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
+        cv2.imshow("8", cv2.resize(src2[(src2x-10):(src2x+10),(src2y-10):(src2y+10)],dsize=None,fx=10, fy=10, interpolation=INTER_NEAREST))
+
         cv2.imshow("test1", cv2.resize(src1,(600,400)))
         cv2.imshow("test2", cv2.resize(src2,(600,400)))
-        cv2.imshow("5", cv2.resize(temperature,(900,600)))
-        print("maxtemperature: ", maxtemperature)
+        
+        
         # cv2.waitKey(10)  # time.sleep 延时没有用
         keyValue = cv2.waitKey(10)
     cv2.destroyAllWindows()
