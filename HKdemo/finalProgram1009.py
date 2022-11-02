@@ -39,10 +39,6 @@ threshold = 0
 def DetectDevice():
     #input:  NULL
     #output: deviceList  
-    # global Lambda1
-    # global Lambda2
-    # Lambda1 = 800 # (nm)
-    # Lambda2 = 700 # (nm)
     deviceList = MV_CC_DEVICE_INFO_LIST()
     tlayerType = MV_GIGE_DEVICE | MV_USB_DEVICE
 
@@ -72,15 +68,14 @@ def DetectDevice():
             nip3 = ((mvcc_dev_info.SpecialInfo.stGigEInfo.nCurrentIp & 0x0000ff00) >> 8)
             nip4 = (mvcc_dev_info.SpecialInfo.stGigEInfo.nCurrentIp & 0x000000ff)
             print("current ip: %d.%d.%d.%d\n" % (nip1, nip2, nip3, nip4))
-            
-            # # 判断仪器ip并决定,以防连接后图像出现混肴
-            # if nip4==78 & i==0:
-            #     Lambda1 = 700
-            #     Lambda2 = 800
-            #     print("set Lamda1 700 and Lamda2 800")
-            #     continue
-            
-
+            strSerialNumber = ""
+            for per in mvcc_dev_info.SpecialInfo.stGigEInfo.chSerialNumber:
+                if per == 0:
+                    break
+                strSerialNumber = strSerialNumber + chr(per)
+            print("device model name: %s" % strModeName)
+            print("serial number: %s" % strSerialNumber)
+        
         elif mvcc_dev_info.nTLayerType == MV_USB_DEVICE:
             print("\nu3v device: [%d]" % i)
             strModeName = ""
@@ -147,7 +142,7 @@ def ConnectDevice(nConnectionNum, ReverseFlag):
 
     # ch:设置曝光时间
     # - 增益 Node Name: Gain Type: Float
-    nExposureTime = 100000
+    nExposureTime = 10000
     ret = cam.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
     nGain = 0
     ret = cam.MV_CC_SetFloatValue("Gain", nGain)
@@ -328,8 +323,6 @@ def pyrometricfunc(img1, img2, Lambda1, Lambda2):
     # LnSnumber = -1.699454545*np.log(Gnumber)+4.518236113
     LnSnumber =-0.399626717*np.log(Gnumber)+0.795408756
 
-
-
     Downpart = np.log(Gnumber) + math.log(math.pow(Lambda1/Lambda2, 5),math.e) + LnSnumber # 这里为二维数据
     T = Uppart / Downpart
     
@@ -433,7 +426,7 @@ def GetImage(cam):
 
 if __name__ == "__main__":
 
-    deviceList, Lambda1, Lambda2 = DetectDevice()
+    deviceList = DetectDevice()
     print("OUT find %d device(s)" % deviceList.nDeviceNum)
     cam1 = ConnectDevice(0, ReverseX_NO)
     cam2 = ConnectDevice(1, ReverseX_YES) 
@@ -491,6 +484,12 @@ if __name__ == "__main__":
             ret = cam1.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
             ret = cam2.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
             print("set exposure %d" % nExposureTime)
+        if (keyValue == ord('j')):
+            Lambda = Lambda1
+            Lambda1 = Lambda2
+            Lambda2 = Lambda
+            print("change the Lambda！")
+
         if FirstGetSiftPara | (keyValue == ord('f')):
             srcwhere1 = np.where(src1 == np.max(src1))
             srcwhere2 = np.where(src2 == np.max(src2))
@@ -520,6 +519,7 @@ if __name__ == "__main__":
         # 相机1&2双光测温
         # # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]),flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
         # originalsrc2 = cv2.warpPerspective(originalsrc2, homographyMat, (originalsrc1.shape[1],originalsrc1.shape[0]))
+        print("Lamda1 %d and Lamda2 %d" % (Lambda1, Lambda2))
         temperature, maxtemperature = pyrometricfunc(src1, HomoImage2, Lambda1, Lambda2)
 
         temperwhere = np.where(temperature == np.max(temperature))
@@ -527,6 +527,8 @@ if __name__ == "__main__":
         tempery = temperwhere[1][0]
 
         temperature = PseudoColor(temperature)
+        # 这边计算温度的数据还是要排除
+        # 使用截取的src1.jpg和src2.jpg进行排查
         cv2.putText(temperature, "maxpoint="+str(temperwhere), (0, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
         cv2.putText(temperature, "maxtemperature: "+str(int(maxtemperature)), (0, 120), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2)
         cv2.imshow("5", cv2.resize(temperature,(900,600)))
@@ -598,10 +600,14 @@ if __name__ == "__main__":
 
         cv2.imshow("test1", cv2.resize(src1,(600,400)))
         cv2.imshow("test2", cv2.resize(src2,(600,400)))
+
+        cv2.imwrite("src1.jpg", src1[(src1x-10):(src1x+10),(src1y-10):(src1y+10)])
+        cv2.imwrite("src2.jpg", src2[(src2x-10):(src2x+10),(src2y-10):(src2y+10)])
+        cv2.imwrite("temper.jpg", temperature[(temperx-10):(temperx+10),(tempery-10):(tempery+10),:])
         
         
         # cv2.waitKey(10)  # time.sleep 延时没有用
-        keyValue = cv2.waitKey(10)
+        keyValue = cv2.waitKey(1)
     cv2.destroyAllWindows()
     CloseDevice(cam1)
     CloseDevice(cam2)
