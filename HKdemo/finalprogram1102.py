@@ -474,7 +474,7 @@ if __name__ == "__main__":
         srcwhere2 = np.where(originalsrc2 == np.max(originalsrc2))
 
         # 相机1&2双光测温
-        print("Lamda1 %d and Lamda2 %d" % (Lambda1, Lambda2))
+        # print("Lamda1 %d and Lamda2 %d" % (Lambda1, Lambda2))
         Tpic16, Tpic8, maxtemperature = pyrometricfunc(originalsrc1, originalsrc2, Lambda1, Lambda2)
 
         temperwhere = np.where(Tpic16 == maxtemperature)
@@ -489,19 +489,24 @@ if __name__ == "__main__":
         cv2.imshow("temper pic", cv2.resize(Tpic,(900,600)))
         # print(np.linspace(temperx-10,temperx+10,21).astype(np.int16))
         # print(np.linspace(tempery-10,tempery+10,21).astype(np.int16))
-        if temperx == 0: # 故障排除
-            if tempery == 0:
-                temperx = 50
-                tempery = 50
-        print("temperlocation: ", (temperx, tempery))
-        print(np.shape(Tpic[(temperx-halfwidth):(temperx+halfwidth),(tempery-halfwidth):(tempery+halfwidth),:]))
+        if (temperx == 0) & (tempery == 0): # 故障排除
+            temperx = 50
+            tempery = 50
+        # print("temperlocation: ", (temperx, tempery))
+        # print(np.shape(Tpic[(temperx-halfwidth):(temperx+halfwidth),(tempery-halfwidth):(tempery+halfwidth),:]))
         cv2.imshow("temper pic part", cv2.resize(Tpic[(temperx-halfwidth):(temperx+halfwidth),(tempery-halfwidth):(tempery+halfwidth),:],dsize=None,fx=10, fy=10, interpolation=INTER_NEAREST))
         
         # cv2.waitKey()
         # cv2.destroyAllWindows()
 
         # 图像配准，选用两幅原始图像进行灰度处理后配准
-        
+        # 故障排除:由于配准位置问题导致后面抠图超出边界，导致 error: (-215:Assertion failed) !ssize.empty() in function 'cv::resize'
+        if src1x < 50: 
+            src1x = 50
+            src2x = 50
+        if src1y < 50:
+            src1y = 50
+            src2y = 50
         fra1.append(np.max(originalsrc1))
         mean1 = sum(fra1)/len(fra1)
         if(len(fra1)>100):
