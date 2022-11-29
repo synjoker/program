@@ -11,7 +11,7 @@ import math
 
 from ctypes import *
 
-sys.path.append("../MvImport")
+sys.path.append("../HKclass")
 from MvCameraControl_class import *
 
 g_bExit = False

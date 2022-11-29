@@ -150,7 +150,7 @@ def ConnectDevice(nConnectionNum, ReverseFlag):
 
     # ch:设置曝光时间
     # - 增益 Node Name: Gain Type: Float
-    nExposureTime = 5000
+    nExposureTime = 10000
     ret = cam.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
     nGain = 0
     ret = cam.MV_CC_SetFloatValue("Gain", nGain)
@@ -168,8 +168,8 @@ def ConnectDevice(nConnectionNum, ReverseFlag):
 
     # 设置width和height 以及layoutx y来调节图像大小，进而实现图像的帧率
     # width 1832 height 1500 layoutx 700 layouty 400
-    nWidth  = 1000
-    nHeight = 1000
+    nWidth  = 1832
+    nHeight = 1500
     offsetX = 700
     offsetY = 400
     cam.MV_CC_SetIntValue("Width", nWidth)
@@ -443,12 +443,10 @@ if __name__ == "__main__":
             src_T16_1, src_T_1, src_maxT1 = GetTemperaturePic(originalsrc1, 0) # 这个函数是针对8为定制的需要改善
             src_T16_2, src_T_2, src_maxT2 = GetTemperaturePic(originalsrc2, 1) # 这个函数是针对8为定制的需要改善
 
-            width = 400
             temperwhere = np.where(src_T16_1 == np.max(src_T16_1))
             temperx = temperwhere[0][0]
             tempery = temperwhere[1][0]
-            temperature = src_T16_1
-            # temperature = src_T16_1[(temperx-width):(temperx+width),(tempery-width):(tempery+width)]
+            temperature = src_T16_1[(temperx-30):(temperx+30),(tempery-30):(tempery+30)]
             plt.figure("Image")  # 图像窗口名称
             plt.subplot(121)
             sns.heatmap(temperature, linewidths = 0, vmax=src_maxT1, vmin=1000, cmap='jet')
@@ -460,8 +458,7 @@ if __name__ == "__main__":
             temperwhere = np.where(src_T16_2 == np.max(src_T16_2))
             temperx = temperwhere[0][0]
             tempery = temperwhere[1][0]
-            temperature = src_T16_2
-            # temperature = src_T16_2[(temperx-width):(temperx+width),(tempery-width):(tempery+width)]
+            temperature = src_T16_2[(temperx-30):(temperx+30),(tempery-30):(tempery+30)]
             plt.subplot(122)
             sns.heatmap(temperature, linewidths = 0, vmax=src_maxT2, vmin=1000, cmap='jet')
             plt.title('700nm')  # 图像题目

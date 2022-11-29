@@ -1,0 +1,33 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "opencv4.5.5 compile task",
+            "command": "D:/EdgeDownload/x86_64-8.1.0-release-win32-seh-rt_v6-rev0/mingw64/bin/g++.exe",
+            "args": [
+                "-g",
+                "${file}",
+                "-o",
+                "${workspaceFolder}\\${fileBasenameNoExtension}.exe",
+                "D:/Opencv4.55/opencv/build/x64/vc15/bin/opencv_world455.dll",
+                "-I",
+                "D:/Opencv4.55/opencv/build/include",
+                "-I",
+                "D:/Opencv4.55/opencv/build/include/opencv",
+                "-I",
+                "D:/Opencv4.55/opencv/build/include/opencv2",
+            ],
+            "options": {
+                "cwd": "D:/EdgeDownload/x86_64-8.1.0-release-win32-seh-rt_v6-rev0/mingw64/bin"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}
