@@ -382,3 +382,11 @@ class CameraOperation():
         numArray[:, :, 1] = data_g_arr
         numArray[:, :, 2] = data_b_arr
         return numArray
+
+def main():
+    Cam = CameraOperation()
+    Cam.Open_device()
+    Cam.Start_grabbing()
+
+if __name__ == "__main__":
+    main()

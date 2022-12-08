@@ -362,7 +362,7 @@ class HKCameraInitialization:
                              cv2.NORM_MINMAX,
                              dtype=cv2.CV_8U)
 
-    @run_time
+    # @run_time
     def CameraOperation(self, cam1, fra1, img1, num):  # num用于命名imshow窗口
         self.originalsrc1, src1 = HKcam.GetImage(
             cam1)  # originalsrc为12位，src为8位 # 800
@@ -573,6 +573,43 @@ def GetTemperaturePic(greypic, deviceFlag):
     return T16, T, T_max, T_min
 
 
+# 双光融合  ！！！！！！！！
+def Pyrometricfunc(img1, img2, Lambda1, Lambda2):
+    # img为12位图像
+    # parameters setting
+    T = 300  # temperature(K)
+    C1 = 3.7419e-16  # first planck's constant(W*m^2)
+    C2 = 1.4388e-2  # second planck's constant(m*K)
+
+    m2nm = 1e9  # m to nm
+
+    G1 = img1  # grey level
+    G2 = img2
+    # G2 = ThresholdProcess(G2, 0)
+
+    # 注意C2和lambda间的单位换算
+    Uppart = C2 * (1 / Lambda2 - 1 / Lambda1) * m2nm
+    # ------------------------------------------这里后面处理
+    # 错误数据：（1）G2不能有极小值或0；（2）LnSnumber不能和LnGnumber符号相反；
+    Gnumber = (G1) / (G2)
+    # 对背景数据进行极小化处理
+    Gnumber[np.where(Gnumber == 0)] = 1E-4
+    Snumber = 3.9203 - 4.46269 * Gnumber
+    Downpart = np.log(Gnumber) + math.log(math.pow(Lambda1 / Lambda2, 5), math.e) - np.log(Snumber)  # 这里为二维数据
+    T = Uppart / Downpart
+
+    Maxtemperature = T[np.where(G1 == np.max(G1))][0]
+    print(Maxtemperature)
+    # 做个预处理
+    T16 = T.astype(np.float16)
+    T_uplimit = (int(Maxtemperature / 100) + 1) * 100  #额定温度上限
+    T16[np.where(T16 > (Maxtemperature + 1))] = np.min(T16)
+    T8 = T16 / T_uplimit * 255
+    T8 = T8.astype(np.uint8)
+    # ------------------------------------------这里后面处理
+    return T16, T8, Maxtemperature
+
+
 # 加入图例和温度曲线
 def PseudoColor(temperaturepic):
     return cv2.applyColorMap(cv2.convertScaleAbs(temperaturepic, alpha=1),
@@ -590,6 +627,10 @@ if __name__ == "__main__":
     img1 = []
     img2 = []
     count = 0
+    keyValue = 0
+    FirstGetSiftPara = True
+    Lambda1 = 808
+    Lambda2 = 700
     import cv2
     import numpy as np
     import time
@@ -606,6 +647,44 @@ if __name__ == "__main__":
         int8src2, originalsrc2, src_T16_2 = HKcam.CameraOperation(
             cam2, fra2, img2, 2)
 
+        # 进行点的匹配
+        if FirstGetSiftPara | (keyValue == ord('f')):
+            srcwhere1 = np.where(originalsrc1 == np.max(originalsrc1))
+            srcwhere2 = np.where(originalsrc2 == np.max(originalsrc2))
+            src1x = srcwhere1[0][0]
+            src1y = srcwhere1[1][0]
+            src2x = srcwhere2[0][0]
+            src2y = srcwhere2[1][0]
+            delteX = src1x - src2x
+            delteY = src1y - src2y
+            # 采用numpy roll实现偏移
+            FirstGetSiftPara = False
+            keyValue = 0
+
+        originalsrc2 = np.roll(originalsrc2, (delteX, delteY), (0, 1))
+        srcwhere1 = np.where(originalsrc1 == np.max(originalsrc1))
+        srcwhere2 = np.where(originalsrc2 == np.max(originalsrc2))
+        print("src1maxpoint= " + str(srcwhere1) + "  src2maxpoint= " + str(srcwhere2))
+        # 相机1&2双光测温
+        # print("Lamda1 %d and Lamda2 %d" % (Lambda1, Lambda2))
+        Tpic16, Tpic8, maxtemperature = Pyrometricfunc(originalsrc1,
+                                                       originalsrc2, Lambda1,
+                                                       Lambda2)
+
+        temperwhere = np.where(Tpic16 == maxtemperature)
+        if np.shape(temperwhere)[0] != 0:  # 去除报错因素
+            temperx = temperwhere[0][0]
+            tempery = temperwhere[1][0]
+
+        # 图像配准，选用两幅原始图像进行灰度处理后配准
+        # 故障排除:由于配准位置问题导致后面抠图超出边界，导致 error: (-215:Assertion failed) !ssize.empty() in function 'cv::resize'
+        if src1x < 50:
+            src1x = 50
+            src2x = 50
+        if src1y < 50:
+            src1y = 50
+            src2y = 50
+
         # # 计算帧数
         # time_sum = time.time() - time_start
         # print(count/time_sum)
@@ -613,6 +692,8 @@ if __name__ == "__main__":
         if key == ord('r'):  # if input key 'r', refresh compare image
             HKcam.SaveIMG(int8src1, originalsrc1, int8src2, originalsrc2)
             HKcam.Savetemperature(src_T16_1, src_T16_2)
+
+
     plt.ioff()
     plt.show()
     cv2.destroyAllWindows()
