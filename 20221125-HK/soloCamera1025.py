@@ -59,6 +59,10 @@ def run_time(fn):
 class HKCameraInitialization:
 
     def __init__(self) -> None:
+        self.minET = 100 # us
+        self.maxET = 1000000 # us
+        self.GreyUp = 4000
+        self.GreyDn = 200
         pass
 
     # 侦察设备并并开启设备
@@ -162,7 +166,8 @@ class HKCameraInitialization:
         # ch:探测网络最佳包大小(只对GigE相机有效) | en:Detection network optimal package size(It only works for the GigE camera)
         if stDeviceList.nTLayerType == MV_GIGE_DEVICE:
             nPacketSize = cam.MV_CC_GetOptimalPacketSize()
-            nPacketRate = 1410  # 实现带宽500MB
+            # nPacketRate = 1410  # 实现带宽500MB
+            nPacketRate = 100
             if int(nPacketSize) > 0:
                 # 设置两项参数实现带宽500MB
                 ret = cam.MV_CC_SetIntValue("GevSCPSPacketSize", nPacketSize)
@@ -180,8 +185,8 @@ class HKCameraInitialization:
 
         # ch:设置曝光时间
         # - 增益 Node Name: Gain Type: Float
-        nExposureTime = 5000
-        ret = cam.MV_CC_SetFloatValue("ExposureTime", nExposureTime)
+        self.nExposureTime = 2500
+        ret = cam.MV_CC_SetFloatValue("ExposureTime", self.nExposureTime)
         nGain = 0
         ret = cam.MV_CC_SetFloatValue("Gain", nGain)
 
@@ -198,14 +203,18 @@ class HKCameraInitialization:
 
         # 设置width和height 以及layoutx y来调节图像大小，进而实现图像的帧率
         # width 1832 height 1500 layoutx 700 layouty 400
-        nWidth = 1100
-        nHeight = 1000
-        offsetX = 700
-        offsetY = 400
-        cam.MV_CC_SetIntValue("Width", nWidth)
-        cam.MV_CC_SetIntValue("Height", nHeight)
-        cam.MV_CC_SetIntValue("OffsetX", offsetX)
-        cam.MV_CC_SetIntValue("OffsetY", offsetY)
+        self.nWidth = 1000
+        self.nHeight = 1000
+        self.offsetX = 700
+        self.offsetY = 400
+        # self.nWidth = 3072
+        # self.nHeight = 2048
+        # self.offsetX = 0
+        # self.offsetY = 0
+        cam.MV_CC_SetIntValue("Width", self.nWidth)
+        cam.MV_CC_SetIntValue("Height", self.nHeight)
+        cam.MV_CC_SetIntValue("OffsetX", self.offsetX)
+        cam.MV_CC_SetIntValue("OffsetY", self.offsetY)
 
         # ch:设置触发模式为off | en:Set trigger mode as off
         ret = cam.MV_CC_SetEnumValue("TriggerMode", MV_TRIGGER_MODE_OFF)
@@ -220,6 +229,24 @@ class HKCameraInitialization:
             sys.exit()
 
         return cam
+    
+    def AutoExposure(self, cam, picgrey):
+        if picgrey < self.GreyDn:
+            self.nExposureTime = self.nExposureTime * 2
+            if self.nExposureTime > self.maxET:
+                self.nExposureTime = self.nExposureTime / 2
+            
+        if picgrey > self.GreyUp:
+            self.nExposureTime = self.nExposureTime / 2
+            if self.nExposureTime > self.maxET:
+                self.nExposureTime = self.nExposureTime * 2
+        # print("ET is %d us" % self.nExposureTime)
+        return self.SetExposure(cam, self.nExposureTime)
+    
+    def SetExposure(self, cam, _nExposureTime):
+        self.nExposureTime = _nExposureTime
+        return cam.MV_CC_SetFloatValue("ExposureTime", self.nExposureTime)
+
 
     # 自动校正两个相机的连接
     def CorrectDevice(self, deviceList):
@@ -363,12 +390,11 @@ class HKCameraInitialization:
                              dtype=cv2.CV_8U)
 
     @run_time
-    def CameraOperation(self, cam1, fra1, img1, num):  # num用于命名imshow窗口
-        self.originalsrc1, src1 = HKcam.GetImage(
-            cam1)  # originalsrc为12位，src为8位 # 800
+    def CameraOperation(self, cam1, fra1, img1, num, temFlag):  # num用于命名imshow窗口
+        self.int16src1, src1 = HKcam.GetImage(cam1)  # int16src为12位，src为8位 # 800
 
         # 图像平均化
-        img1.append(self.originalsrc1)
+        img1.append(self.int16src1)
         if (len(img1) > 1):
             img1.remove(img1[0])
         img11 = sum(img1) / len(img1)
@@ -378,82 +404,79 @@ class HKCameraInitialization:
             fra1.remove(fra1[0])
         mean1 = sum(fra1) / len(fra1)
 
+        # self.AutoExposure(cam1, int(np.max(self.int16src1)))
+
         # 12位图像数据8位化
         self.int8src1 = cv2.normalize(
-            self.originalsrc1, None, 0, 255, cv2.NORM_MINMAX,
+            self.int16src1, None, 0, 255, cv2.NORM_MINMAX,
             dtype=cv2.CV_8U)  #把最大值放到255(eg:11-23放到0-255，因此比较明显)
-
+        # 观察窗口
+        int16xmin = 500
+        int16ymin = 450
+        int16xmax = 550
+        int16ymax = 500
+        int16window = self.int16src1[int16ymin:int16ymax, int16xmin:int16xmax] # cv2 和矩阵间的转换
+        self.int8src1[int16ymin:int16ymax, int16xmin:int16xmax] = 0
         cv2.putText(self.int8src1,
-                    "maxpoint=" + str(int(np.max(self.originalsrc1))), (0, 20),
+                    "maxpoint=" + str(int(np.max(self.int16src1))), (0, 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
         cv2.putText(self.int8src1, "meanmaxtemperature: " + str(int(mean1)),
                     (0, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(self.int8src1, "mean grey: " + str(int(np.mean(int16window))),
+                    (0, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(self.int8src1, "ET is %s us" % str(int(self.nExposureTime)),
+                    (0, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.rectangle(self.int8src1, (int16xmin, int16ymin), (int16xmax, int16ymax), (0,0,255), 2)         
         picname1 = "origin" + str(num)
         picname2 = "temperature" + str(num)
+        cv2.namedWindow(picname1, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
         cv2.imshow(picname1, self.int8src1)
         # cv2.imshow("temperature1", np.uint8(img11))
         # # 彩色图&等温线
         # amplify = 10
-        src_T16_1, src_T_1, src_maxT1, src_minT1 = GetTemperaturePic(
-            self.originalsrc1.astype(np.uint16), num)  # 这个函数是针对8为定制的需要改善
-        cv2.imshow(picname2, src_T_1)
+        if temFlag is False:
+            return self.int8src1, self.int16src1
+        if temFlag is True:
+            src_T16_1, src_T_1, src_maxT1, src_minT1 = GetTemperaturePic(
+                self.int16src1.astype(np.uint16), num)  # 这个函数是针对8为定制的需要改善
+            cv2.imshow(picname2, src_T_1)
 
-        # # # 制作等温线
-        # # dx = 0.01
-        # # dy = 0.01
-        # # x=np.arange(-5.0,8.0,dx)
-        # # y=np.arange(-5.0,5.0,dy)
-        # # X,Y=np.meshgrid(x,y)
+            # # # 制作等温线
+            # # dx = 0.01
+            # # dy = 0.01
+            # # x=np.arange(-5.0,8.0,dx)
+            # # y=np.arange(-5.0,5.0,dy)
+            # # X,Y=np.meshgrid(x,y)
 
-        # # 等温线
-        # # plt.figure(picname2)
-        # # plt.clf()
-        # # C=plt.contour(X,Y,src_T16_1,[1710,1740, 1770,  1800,  1830,  1860,  1890],colors='black')  #生成等值线图
-        # # plt.contourf(X,Y,src_T16_1,[1710, 1740, 1770,  1800,  1830,  1860,  1890])
-        # # plt.colorbar()
-        # # plt.clabel(C,inline=0.01,fontsize=2)
-        # # print(np.max(src_T16_1))
+            # # 等温线
+            # # plt.figure(picname2)
+            # # plt.clf()
+            # # C=plt.contour(X,Y,src_T16_1,[1710,1740, 1770,  1800,  1830,  1860,  1890],colors='black')  #生成等值线图
+            # # plt.contourf(X,Y,src_T16_1,[1710, 1740, 1770,  1800,  1830,  1860,  1890])
+            # # plt.colorbar()
+            # # plt.clabel(C,inline=0.01,fontsize=2)
+            # # print(np.max(src_T16_1))
 
-        # 热彩色图
-        plt.figure(picname2)
-        plt.clf()
-        sns.heatmap(src_T16_1,
-                    linewidths=0,
-                    vmax=src_maxT1,
-                    vmin=src_minT1,
-                    cmap='jet')
-        plt.title('800nm')  # 图像题目
-        plt.axis('off')
-        plt.xticks(rotation=90)
+            # 热彩色图
+            plt.figure(picname2)
+            plt.clf()
+            sns.heatmap(src_T16_1,
+                        linewidths=0,
+                        vmax=980,
+                        vmin=940,
+                        cmap='jet')
+            plt.title('800nm')  # 图像题目
+            plt.axis('off')
+            plt.xticks(rotation=90)
 
-        # # plt.pause(0.01)
-        # # keyValue = cv2.waitKey(1)
+            # # plt.pause(0.01)
+            # # keyValue = cv2.waitKey(1)
 
-        # # print("图像1", src_maxT1, src_minT1)
+            # # print("图像1", src_maxT1, src_minT1)
 
-        return self.int8src1, self.originalsrc1, src_T16_1
+            return self.int8src1, self.int16src1, src_T16_1
 
-    def SaveIMG(self, int8src1, originalsrc1, int8src2, originalsrc2):
-        #打印时间戳保存
-        timeNow = datetime.datetime.now().strftime("%Y-%m-%d")
-        timeNow1 = datetime.datetime.now().strftime("%H-%M-%S-")
-        if not os.path.isdir("20221125-HK/" + timeNow):
-            os.makedirs("20221125-HK/" + timeNow)
-        img16 = np.uint16(originalsrc1)
-        cv2.imwrite("20221125-HK/" + timeNow + '/' + timeNow1 + 'int8src1.tif',
-                    int8src1)
-        cv2.imwrite(
-            "20221125-HK/" + timeNow + '/' + timeNow1 + 'originalsrc1.tif',
-            img16)
-        img16 = np.uint16(originalsrc2)
-        cv2.imwrite("20221125-HK/" + timeNow + '/' + timeNow1 + 'int8src2.tif',
-                    int8src2)
-        cv2.imwrite(
-            "20221125-HK/" + timeNow + '/' + timeNow1 + 'originalsrc2.tif',
-            img16)
-        print("the image is refreshed")
-
-    def Savetemperature(self, tem1, tem2):
+    def SaveIMG(self, tem1, picname):
         #打印时间戳保存
         timeNow = datetime.datetime.now().strftime("%Y-%m-%d")
         timeNow1 = datetime.datetime.now().strftime("%H-%M-%S-")
@@ -461,13 +484,9 @@ class HKCameraInitialization:
             os.makedirs("20221125-HK/" + timeNow)
         img16 = np.uint16(tem1)
         cv2.imwrite(
-            "20221125-HK/" + timeNow + '/' + timeNow1 + 'temperature1.tif',
+            "20221125-HK/" + timeNow + '/' + timeNow1 + picname + '.tif',
             img16)
-        img16 = np.uint16(tem2)
-        cv2.imwrite(
-            "20221125-HK/" + timeNow + '/' + timeNow1 + 'temperature2.tif',
-            img16)
-        print("the temperature image is refreshed")
+        print("the %s image is refreshed" % picname)
 
         # # if input key 's', refresh compare image
         # if self.key == ord('s'):
@@ -590,31 +609,66 @@ if __name__ == "__main__":
     img1 = []
     img2 = []
     count = 0
+    key = []
     import cv2
     import numpy as np
     import time
+    import csv
+    import os
     time_start = time.time()
     plt.ion()
-    while (True):
-        # 从cam句柄获取12位原始数据和8位换算数据
-        # 如果双光还要翻转图像
+    tem = 1000
+    timeNow = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not os.path.exists('./20221125-HK/CameraGreyOutput2'): #判断所在目录下是否有该文件名的文件夹
+        os.makedirs("./20221125-HK/CameraGreyOutput2")
+    with open('./20221125-HK/CameraGreyOutput2/Output_%s+%s+%sus.csv'%(timeNow, str(tem), str(HKcam.nExposureTime)),'w',newline='')as csv_file:
+        writer=csv.writer(csv_file)
+        # writerow 写入一行数据
+        writeDatum = ["Time"]
+        for i in range(500, 550):
+                for j in range(500, 550):
+                    writeDatum.append('(%s, %s)'%(str(i), str(j)))
+        writer.writerow(writeDatum)
+        while key != ord('q'):
+            # 从cam句柄获取12位原始数据和8位换算数据
+            # 如果双光还要翻转图像
 
-        count += 1
+            count += 1
 
-        int8src1, originalsrc1, src_T16_1 = HKcam.CameraOperation(
-            cam1, fra1, img1, 1)
-        int8src2, originalsrc2, src_T16_2 = HKcam.CameraOperation(
-            cam2, fra2, img2, 2)
+            # int8src1, int16src1 = HKcam.CameraOperation(
+            #     cam1, fra1, img1, 1, False)
+            int8src2, int16src2 = HKcam.CameraOperation(
+                cam2, fra2, img2, 2, False)
+            
+            timeNow1 = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            # max min min variance 
+            # 获取一个csv对象进行内容写入
+            writer=csv.writer(csv_file)
+            writeDatum = [timeNow1]
+            # writerow 写入一行数据
+            for i in range(500, 550):
+                for j in range(500, 550):
+                    writeDatum.append(str(int(int16src2[i,j])))
+            writer.writerow(writeDatum)        
 
-        # # 计算帧数
-        # time_sum = time.time() - time_start
-        # print(count/time_sum)
-        key = cv2.waitKey(1)
-        if key == ord('r'):  # if input key 'r', refresh compare image
-            HKcam.SaveIMG(int8src1, originalsrc1, int8src2, originalsrc2)
-            HKcam.Savetemperature(src_T16_1, src_T16_2)
-    plt.ioff()
-    plt.show()
-    cv2.destroyAllWindows()
-    HKcam.CloseDevice(cam1)
-    HKcam.CloseDevice(cam2)
+            # # 计算帧数
+            # time_sum = time.time() - time_start
+            # print(count/time_sum)
+            key = cv2.waitKey(1)
+            if key == ord('r'):  # if input key 'r', refresh compare image
+                # HKcam.SaveIMG(int8src1, "int8src1")
+                # HKcam.SaveIMG(int16src1, "int16src1")
+                
+                HKcam.SaveIMG(int8src2, "int8src2+%d+%dus"%(tem, HKcam.nExposureTime))
+                HKcam.SaveIMG(int16src2, "int16src2+%d+%dus"%(tem, HKcam.nExposureTime))
+
+                # HKcam.SaveIMG(src_T16_1, "src_T16_1")
+                # HKcam.SaveIMG(src_T16_2, "src_T16_2")
+        plt.ioff()
+        plt.show()
+        cv2.destroyAllWindows()
+        HKcam.CloseDevice(cam1)
+        HKcam.CloseDevice(cam2)
+
+
+
